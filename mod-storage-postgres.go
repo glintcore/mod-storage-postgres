@@ -12,17 +12,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type storagePostgres struct {
+type postgres struct {
 	connstr string
 }
 
-func (sp *storagePostgres) Open(dataSourceName string) error {
-	sp.connstr = dataSourceName
+func (pg *postgres) Open(dataSourceName string) error {
+	fmt.Printf("Using mod-storage-postgres\n")
+	pg.connstr = dataSourceName
 	// Open database here
 	return nil
 }
 
-func (sp *storagePostgres) Close() error {
+func (pg *postgres) Close() error {
+	fmt.Printf("postgres.Close()\n")
 	// Close database here
 	return nil
 }
@@ -597,15 +599,16 @@ func CreateSchema() error {
 	return nil
 }
 
-func Setup(host, port, user, password, dbname string) error {
+func Setup() error {
 	// Open the database connection pool.
-	var err = Connect(host, port, user, password, dbname)
-	if err != nil {
-		return fmt.Errorf("Unable to connect to database: %v", err)
-	}
+	/*
+		var err = Connect(host, port, user, password, dbname)
+		if err != nil {
+			return fmt.Errorf("Unable to connect to database: %v", err)
+		}
+	*/
 	// Check if the schema appears to exist, and create it if not.
-	var schema bool
-	schema, err = schemaExists()
+	schema, err := schemaExists()
 	if err != nil {
 		return err
 	}
@@ -620,4 +623,4 @@ func Setup(host, port, user, password, dbname string) error {
 
 //////////////////////////////////////////
 
-var Storage storagePostgres
+var StorageModule postgres
