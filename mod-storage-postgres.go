@@ -12,26 +12,45 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type postgres struct {
-	connstr string
+type Postgres struct {
+	db             *sql.DB
+	dataSourceName string
 }
-
-func (pg *postgres) Open(dataSourceName string) error {
-	fmt.Printf("Using mod-storage-postgres\n")
-	pg.connstr = dataSourceName
-	// Open database here
-	return nil
-}
-
-func (pg *postgres) Close() error {
-	fmt.Printf("postgres.Close()\n")
-	// Close database here
-	return nil
-}
-
-/////////////////////////////////////////////////////////////////////
 
 var glintdb *sql.DB
+
+func (pg *Postgres) Open(dataSourceName string) error {
+	fmt.Printf("Using mod-storage-postgres\n")
+	/*
+		var info string = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s "+
+				"sslmode=disable", host, port, user, password, dbname)
+	*/
+	if pg.db != nil {
+		return fmt.Errorf("Database already open: %v", dataSourceName)
+	}
+	var db *sql.DB
+	var err error
+	if db, err = sql.Open("postgres", dataSourceName); err != nil {
+		return err
+	}
+	// Ping the database to test the connection.
+	if err = db.Ping(); err != nil {
+		return err
+	}
+	pg.db = db
+	glintdb = db
+	return nil
+}
+
+func (pg *Postgres) Close() error {
+	if err := pg.db.Close(); err != nil {
+		return fmt.Errorf("Error closing database: %v",
+			pg.dataSourceName)
+	}
+	pg.db = nil
+	return nil
+}
 
 func validatePassword(password string) error {
 	// Check if all characters are ASCII printable.
@@ -49,7 +68,7 @@ func validatePassword(password string) error {
 	return nil
 }
 
-func Connect(host, port, user, password, dbname string) error {
+func (pg *Postgres) Connect(host, port, user, password, dbname string) error {
 	var info string = fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s "+
 			"sslmode=disable", host, port, user, password, dbname)
@@ -90,7 +109,7 @@ func schemaExists() (bool, error) {
 	}
 }
 
-func LookupPassword(username string) (string, error) {
+func (pg *Postgres) LookupPassword(username string) (string, error) {
 	var st *sql.Stmt
 	var err error
 	st, err = glintdb.Prepare(`
@@ -114,10 +133,10 @@ func LookupPassword(username string) (string, error) {
 	}
 }
 
-func Authenticate(username string, password string) (bool, error) {
+func (pg *Postgres) Authenticate(username string, password string) (bool, error) {
 	var password_hash string
 	var err error
-	password_hash, err = LookupPassword(username)
+	password_hash, err = pg.LookupPassword(username)
 	if err != nil {
 		return false, err
 	}
@@ -136,7 +155,7 @@ func Authenticate(username string, password string) (bool, error) {
 	return true, nil
 }
 
-func CreateTablePerson(tx *sql.Tx) error {
+func (pg *Postgres) CreateTablePerson(tx *sql.Tx) error {
 	var st *sql.Stmt
 	var err error
 	st, err = tx.Prepare(`
@@ -179,12 +198,12 @@ func validateAndHashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-func AddMetadata(personId int64, path string, attribute string,
+func (pg *Postgres) AddMetadata(personId int64, path string, attribute string,
 	metadata string) error {
 
 	var fileId int64
 	var err error
-	fileId, err = LookupFileId(personId, path)
+	fileId, err = pg.LookupFileId(personId, path)
 	if err != nil {
 		return err
 	}
@@ -209,7 +228,7 @@ func AddMetadata(personId int64, path string, attribute string,
 	return nil
 }
 
-func ChangePassword(username string, password string) error {
+func (pg *Postgres) ChangePassword(username string, password string) error {
 
 	// TODO Check that user exists in table, because update does not
 	// consider 0 updates to be an error.
@@ -239,7 +258,7 @@ func ChangePassword(username string, password string) error {
 	return nil
 }
 
-func LookupPersonId(username string) (int64, error) {
+func (pg *Postgres) LookupPersonId(username string) (int64, error) {
 	var st *sql.Stmt
 	var err error
 	st, err = glintdb.Prepare(`
@@ -263,7 +282,7 @@ func LookupPersonId(username string) (int64, error) {
 	}
 }
 
-func AddPerson(username string, fullname string, email string,
+func (pg *Postgres) AddPerson(username string, fullname string, email string,
 	password string) error {
 	// TODO Validate user characters with something similar to
 	// validatePassword().
@@ -292,7 +311,7 @@ func AddPerson(username string, fullname string, email string,
 	// TODO Return id.
 }
 
-func LookupFileId(personId int64, path string) (int64, error) {
+func (pg *Postgres) LookupFileId(personId int64, path string) (int64, error) {
 	var st *sql.Stmt
 	var err error
 	st, err = glintdb.Prepare(`
@@ -316,12 +335,12 @@ func LookupFileId(personId int64, path string) (int64, error) {
 	}
 }
 
-func LookupMetadata(personId int64, path string, attribute string) (string,
+func (pg *Postgres) LookupMetadata(personId int64, path string, attribute string) (string,
 	error) {
 
 	var fileId int64
 	var err error
-	fileId, err = LookupFileId(personId, path)
+	fileId, err = pg.LookupFileId(personId, path)
 	if err != nil {
 		return "", err
 	}
@@ -351,7 +370,7 @@ func LookupMetadata(personId int64, path string, attribute string) (string,
 	}
 }
 
-func LookupData(person_id int64, path string) (string, error) {
+func (pg *Postgres) LookupData(person_id int64, path string) (string, error) {
 	var st *sql.Stmt
 	var err error
 	st, err = glintdb.Prepare(`
@@ -375,7 +394,7 @@ func LookupData(person_id int64, path string) (string, error) {
 	}
 }
 
-func LookupDataList(person_id int64) (string, error) {
+func (pg *Postgres) LookupDataList(person_id int64) (string, error) {
 	var st *sql.Stmt
 	var err error
 	st, err = glintdb.Prepare(`
@@ -407,7 +426,7 @@ func LookupDataList(person_id int64) (string, error) {
 	return b.String(), nil
 }
 
-func AddFile(person_id int64, path string, data string) (int64, error) {
+func (pg *Postgres) AddFile(person_id int64, path string, data string) (int64, error) {
 	// Store in the database.
 	var st *sql.Stmt
 	var err error
@@ -466,11 +485,11 @@ func deleteFromFile(id int64) error {
 	return nil
 }
 
-func DeleteFile(personId int64, path string) error {
+func (pg *Postgres) DeleteFile(personId int64, path string) error {
 
 	var fileId int64
 	var err error
-	fileId, err = LookupFileId(personId, path)
+	fileId, err = pg.LookupFileId(personId, path)
 	if err != nil {
 		return err
 	}
@@ -486,7 +505,7 @@ func DeleteFile(personId int64, path string) error {
 	return nil
 }
 
-func AddAttributes(file_id int64, attrs []string) error {
+func (pg *Postgres) AddAttributes(file_id int64, attrs []string) error {
 	var x int
 	for x = range attrs {
 		// Store in the database.
@@ -516,7 +535,7 @@ func AddAttributes(file_id int64, attrs []string) error {
 	return nil
 }
 
-func CreateTableAttribute(tx *sql.Tx) error {
+func (pg *Postgres) CreateTableAttribute(tx *sql.Tx) error {
 	var st *sql.Stmt
 	var err error
 	st, err = tx.Prepare(`
@@ -542,7 +561,7 @@ func CreateTableAttribute(tx *sql.Tx) error {
 	return nil
 }
 
-func CreateTableFile(tx *sql.Tx) error {
+func (pg *Postgres) CreateTableFile(tx *sql.Tx) error {
 	var st *sql.Stmt
 	var err error
 	st, err = tx.Prepare(`
@@ -569,7 +588,7 @@ func CreateTableFile(tx *sql.Tx) error {
 	return nil
 }
 
-func CreateSchema() error {
+func (pg *Postgres) CreateSchema() error {
 	log.Print("Initializing database")
 	var tx *sql.Tx
 	var err error
@@ -577,17 +596,17 @@ func CreateSchema() error {
 	if err != nil {
 		return err
 	}
-	err = CreateTablePerson(tx)
+	err = pg.CreateTablePerson(tx)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	err = CreateTableFile(tx)
+	err = pg.CreateTableFile(tx)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	err = CreateTableAttribute(tx)
+	err = pg.CreateTableAttribute(tx)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -599,13 +618,14 @@ func CreateSchema() error {
 	return nil
 }
 
-func Setup() error {
-	// Open the database connection pool.
+func (pg *Postgres) Setup() error {
 	/*
-		var err = Connect(host, port, user, password, dbname)
-		if err != nil {
-			return fmt.Errorf("Unable to connect to database: %v", err)
-		}
+	   func (pg *postgres) Setup(host, port, user, password, dbname string) error {
+	   	// Open the database connection pool.
+	   	var err = pg.Connect(host, port, user, password, dbname)
+	   	if err != nil {
+	   		return fmt.Errorf("Unable to connect to database: %v", err)
+	   	}
 	*/
 	// Check if the schema appears to exist, and create it if not.
 	schema, err := schemaExists()
@@ -613,7 +633,7 @@ func Setup() error {
 		return err
 	}
 	if !schema {
-		err = CreateSchema()
+		err = pg.CreateSchema()
 		if err != nil {
 			return err
 		}
@@ -621,6 +641,4 @@ func Setup() error {
 	return nil
 }
 
-//////////////////////////////////////////
-
-var StorageModule postgres
+var StorageModule Postgres
